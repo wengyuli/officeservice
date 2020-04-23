@@ -46,9 +46,8 @@ namespace OfficeService.Controllers
         {
             IWordDocument document = new WordDocument();
             var wordBytes = Encoding.UTF8.GetBytes(wordBase64); 
-            
-            FileStream fileStream = new FileStream(templateFileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            document.Open(fileStream, FormatType.Doc);
+            var fileMemoryStream = new MemoryStream(wordBytes);
+            document.Open(fileMemoryStream, FormatType.Doc);
             foreach (var rd in replaysDictionary)
             {
                 if (string.IsNullOrEmpty(document.GetText())) continue;
@@ -59,9 +58,15 @@ namespace OfficeService.Controllers
             }
             MemoryStream stream = new MemoryStream();
             document.Save(stream, FormatType.Doc);
+
+            byte[] bytes = new byte[stream.Length];
+            stream.Read(bytes, 0, bytes.Length);
+            stream.Seek(0, SeekOrigin.Begin);
+
             document.Close();
-            stream.Position = 0; 
-            return "";
+            stream.Position = 0;
+
+            return Encoding.UTF8.GetString(bytes);
         }
 
     }
