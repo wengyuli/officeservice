@@ -26,19 +26,23 @@ namespace OfficeService.Controllers
         // POST: api/word/replace 
         [HttpPost("[action]")]
         public IActionResult replace([FromForm]Doc doc) {
-            
-            // {"str1" : "newStr1", "str2" : "newStr2"}; 
-            dynamic jsons = JsonConvert.DeserializeObject(doc.json);
+            try {
+                // {"str1" : "newStr1", "str2" : "newStr2"}; 
+                dynamic jsons = JsonConvert.DeserializeObject(doc.json);
 
-            Dictionary<string, string> dicValues = new Dictionary<string, string>();
+                Dictionary<string, string> dicValues = new Dictionary<string, string>();
 
-            foreach (var item in jsons) {
-                dicValues.Add((string)item.Path, (string)item.Value);
+                foreach (var item in jsons) {
+                    dicValues.Add((string)item.Path, (string)item.Value);
+                }
+
+                var base64 = ReplaceContent(doc.base64, dicValues);
+
+                return Ok(new { docBase64 = base64 });
             }
-
-            var base64 = ReplaceContent(doc.base64, dicValues);
-
-            return Ok(new { doc = base64 });
+            catch (Exception ex) {
+                return Ok(new { exception = ex.Message });
+            }
         }
 
         public class Doc { 
