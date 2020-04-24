@@ -8,6 +8,7 @@ using Syncfusion.DocIO;
 using Syncfusion.DocIO.DLS;
 using System.IO;
 using System.Text;
+using Newtonsoft.Json;
 
 namespace OfficeService.Controllers
 {  
@@ -21,53 +22,64 @@ namespace OfficeService.Controllers
         {
             return "it works.";
         }
-
-        // GET: api/Word/5
-        [HttpGet("{id}", Name = "Get")]
-        public string Get(int id)
-        {
-            return "word api";
-        }
-
-        // POST: api/Word
-        [HttpPost]
-        public void Post([FromBody] string value)
-        {
-
-        } 
-
-        // POST: api/word/replace 
-        [HttpPost("replace")]
-        public string replace([FromBody]string request) {
-            return "000";
-        }
          
-        public static string ReplaceDocContent(string wordBase64, Dictionary<string, string> replaysDictionary)
-        {
-            IWordDocument document = new WordDocument();
-            var wordBytes = Encoding.UTF8.GetBytes(wordBase64); 
-            var fileMemoryStream = new MemoryStream(wordBytes);
-            document.Open(fileMemoryStream, FormatType.Doc);
-            foreach (var rd in replaysDictionary)
-            {
-                if (string.IsNullOrEmpty(document.GetText())) continue;
+        // POST: api/word/replace 
+        [HttpPost("[action]")]
+        public IActionResult replace([FromForm]Doc doc) {
+            
+            // {"str1" : "newStr1", "str2" : "newStr2"}; 
+            dynamic jsons = JsonConvert.DeserializeObject(doc.json);
 
-                document.Replace(rd.Key, rd.Value, false, false);
-                while (document.GetText().IndexOf(rd.Key) != -1)
-                    document.Replace(rd.Key, rd.Value, false, false);
+            Dictionary<string, string> dicValues = new Dictionary<string, string>();
+
+            foreach (var item in jsons) {
+                dicValues.Add((string)item.Path, (string)item.Value);
             }
-            MemoryStream stream = new MemoryStream();
-            document.Save(stream, FormatType.Doc);
 
-            byte[] bytes = new byte[stream.Length];
-            stream.Read(bytes, 0, bytes.Length);
-            stream.Seek(0, SeekOrigin.Begin);
+            var base64 = ReplaceContent(doc.base64, dicValues);
 
-            document.Close();
-            stream.Position = 0;
-
-            return Encoding.UTF8.GetString(bytes);
+            return Ok(new { doc = base64 });
         }
+
+        public class Doc { 
+            public string base64 { get; set; }
+            public string json { get; set; }
+        }
+
+        public static string ReplaceContent(string wordBase64, Dictionary<string, string> replaysDictionary)
+        {
+            try {
+                IWordDocument document = new WordDocument();
+                var wordBytes = Encoding.UTF8.GetBytes(wordBase64);
+                var fileMemoryStream = new MemoryStream(wordBytes);
+                document.Open(fileMemoryStream, FormatType.Doc);
+                foreach (var rd in replaysDictionary)
+                {
+                    if (string.IsNullOrEmpty(document.GetText())) continue;
+
+                    document.Replace(rd.Key, rd.Value, false, false);
+                    while (document.GetText().IndexOf(rd.Key) != -1)
+                        document.Replace(rd.Key, rd.Value, false, false);
+                }
+                MemoryStream stream = new MemoryStream();
+                document.Save(stream, FormatType.Doc);
+
+                byte[] bytes = new byte[stream.Length];
+                stream.Read(bytes, 0, bytes.Length);
+                stream.Seek(0, SeekOrigin.Begin);
+
+                document.Close();
+                stream.Position = 0;
+
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch (Exception ex) {
+                return Encoding.UTF8.GetString( Encoding.UTF8.GetBytes( ex.Message) );
+            }
+            
+        }
+
+
 
     }
 }
