@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks; 
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Syncfusion.DocIO;
-using Syncfusion.DocIO.DLS;
+using Microsoft.AspNetCore.Mvc; 
 using System.IO;
 using System.Text;
 using Newtonsoft.Json;
+using Microsoft.Office.Interop.Word;
+using Microsoft.Office.Interop;
+using System.Reflection;
 
 namespace OfficeService.Controllers
 {  
@@ -20,14 +21,13 @@ namespace OfficeService.Controllers
         [HttpGet]
         public string Get()
         {
-            return "it works.";
+            return "it works with office 2013 installed.";
         }
          
         // POST: api/word/replace 
         [HttpPost("[action]")]
         public IActionResult replace([FromForm]Doc doc) {
-            try {
-                // {"str1" : "newStr1", "str2" : "newStr2"}; 
+            try { 
                 dynamic jsons = JsonConvert.DeserializeObject(doc.json);
 
                 Dictionary<string, string> dicValues = new Dictionary<string, string>();
@@ -36,9 +36,24 @@ namespace OfficeService.Controllers
                     dicValues.Add((string)item.Path, (string)item.Value);
                 }
 
-                var base64 = ReplaceContent(doc.base64, dicValues);
 
-                return Ok(new { docBase64 = base64 });
+                string oldPath = AppContext.BaseDirectory + "old.docx";
+                System.IO.File.WriteAllBytes(oldPath, Convert.FromBase64String(doc.base64));
+
+                string newPath = AppContext.BaseDirectory + "new.docx";
+
+                WordReplace(oldPath, newPath, dicValues);
+
+                byte[] newBytes = System.IO.File.ReadAllBytes(newPath);
+
+                try
+                {
+                    System.IO.File.Delete(oldPath);
+                    System.IO.File.Delete(newPath);
+                }
+                catch { }
+
+                return Ok(new { docBase64 = Convert.ToBase64String( newBytes ) });
             }
             catch (Exception ex) {
                 return Ok(new { exception = ex.Message });
@@ -49,38 +64,99 @@ namespace OfficeService.Controllers
             public string base64 { get; set; }
             public string json { get; set; }
         }
+ 
 
-        public static string ReplaceContent(string wordBase64, Dictionary<string, string> replaysDictionary)
-        {
-            try {
-                IWordDocument document = new WordDocument();
-                var wordBytes = Encoding.UTF8.GetBytes(wordBase64);
-                var fileMemoryStream = new MemoryStream(wordBytes);
-                document.Open(fileMemoryStream, FormatType.Doc);
-                foreach (var rd in replaysDictionary)
+        public static void WordReplace(string oldWordPath, string newWordPath, Dictionary<string, string> dicValues ) {
+
+            Object Nothing = Missing.Value; //由于使用的是COM库，因此有许多变量需要用Missing.Value代替
+            //object format = WdSaveFormat.wdFormatDocumentDefault;
+            //object unite = Microsoft.Office.Interop.Word.WdUnits.wdStory;
+            object newDoc = newWordPath;
+            Application wordApp;//Word应用程序变量初始化
+            Document wordDoc;  
+
+            wordApp = new Application();//创建word应用程序
+
+            object fileName = (oldWordPath);//模板文件
+
+            wordDoc = wordApp.Documents.Open(ref fileName,
+            ref Nothing, ref Nothing, ref Nothing, ref Nothing, ref Nothing,
+            ref Nothing, ref Nothing, ref Nothing, ref Nothing, ref Nothing,
+            ref Nothing, ref Nothing, ref Nothing, ref Nothing, ref Nothing);
+
+            object replace = WdReplace.wdReplaceAll;
+
+            wordApp.Selection.Find.Replacement.ClearFormatting();
+            wordApp.Selection.Find.MatchWholeWord = true;
+            wordApp.Selection.Find.ClearFormatting();
+
+            foreach (var item in dicValues) {
+                object FindText = item.Key;
+                object Replacement = item.Value;
+
+                if (Replacement.ToString().Length > 110)
                 {
-                    if (string.IsNullOrEmpty(document.GetText())) continue;
-
-                    document.Replace(rd.Key, rd.Value, false, false);
-                    while (document.GetText().IndexOf(rd.Key) != -1)
-                        document.Replace(rd.Key, rd.Value, false, false);
+                    FindAndReplaceLong(wordApp, FindText, Replacement);
+                }else { 
+                    FindAndReplace(wordApp, FindText, Replacement); 
                 }
-                MemoryStream stream = new MemoryStream();
-                document.Save(stream, FormatType.Doc);
-
-                byte[] bytes = new byte[stream.Length];
-                stream.Read(bytes, 0, bytes.Length);
-                stream.Seek(0, SeekOrigin.Begin);
-
-                document.Close();
-                stream.Position = 0;
-
-                return Encoding.UTF8.GetString(bytes);
-            }
-            catch (Exception ex) {
-                return Encoding.UTF8.GetString( Encoding.UTF8.GetBytes( ex.Message) );
             }
             
+            wordDoc.SaveAs(newDoc,
+            Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing, Nothing,
+            Nothing, Nothing, Nothing, Nothing, Nothing, Nothing);
+            //关闭wordDoc文档
+            wordApp.Documents.Close(ref Nothing, ref Nothing, ref Nothing);
+            //关闭wordApp组件对象
+            wordApp.Quit(ref Nothing, ref Nothing, ref Nothing);
+
+        }
+
+
+        public static void FindAndReplaceLong(Application wordApp, object findText, object replaceText)
+        {
+            int len = replaceText.ToString().Length; //要替换的文字长度
+            int cnt = len / 110; //不超过220个字
+            string newstr;
+            object newStrs;
+            if (len < 110) //小于220字直接替换
+            {
+                FindAndReplace(wordApp, findText, replaceText);
+            }
+            else
+            {
+                for (int i = 0; i <= cnt; i++)
+                {
+                    if (i != cnt)
+                        newstr = replaceText.ToString().Substring(i * 110, 110) + findText; //新的替换字符串
+                    else
+                        newstr = replaceText.ToString().Substring(i * 110, len - i * 110); //最后一段需要替换的文字
+                    newStrs = (object)newstr;
+                    FindAndReplace(wordApp, findText, newStrs); //进行替换
+                }
+            }
+        }
+
+        public static void FindAndReplace(Application wordApp, object findText, object replaceText)
+        {
+            object matchCase = true;
+            object matchWholeWord = true;
+            object matchWildCards = false;
+            object matchSoundsLike = false;
+            object matchAllWordForms = false;
+            object forward = true;
+            object format = false;
+            object matchKashida = false;
+            object matchDiacritics = false;
+            object matchAlefHamza = false;
+            object matchControl = false;
+            object read_only = false;
+            object visible = true;
+            object replace = 2;
+            object wrap = 1;
+            wordApp.Selection.Find.Execute(ref findText, ref matchCase, ref matchWholeWord, ref matchWildCards,
+            ref matchSoundsLike, ref matchAllWordForms, ref forward, ref wrap, ref format, ref replaceText,
+            ref replace, ref matchKashida, ref matchDiacritics, ref matchAlefHamza, ref matchControl);
         }
 
 
